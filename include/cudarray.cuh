@@ -149,7 +149,7 @@ struct cudarray {
     int copyFromHostToDevice(T *host_data, uint64_t offset, uint64_t size) {
         cudarray_device_pointer<T> pointer = getDevicePointer(offset);
         cudaError_t err =
-            cudaMemcpy(pointer.data + pointer.offset, host_data, size * sizeof(T), cudaMemcpyHostToDevice);
+            cudaMemcpyAsync(pointer.data + pointer.offset, host_data, size * sizeof(T), cudaMemcpyHostToDevice);
         if (err != cudaSuccess) {
             return -1;
         }
@@ -159,7 +159,7 @@ struct cudarray {
     int copyFromDeviceToHost(T *host_data, uint64_t offset, uint64_t size) {
         cudarray_device_pointer<T> pointer = getDevicePointer(offset);
         cudaError_t err =
-            cudaMemcpy(host_data, pointer.data + pointer.offset, size * sizeof(T), cudaMemcpyDeviceToHost);
+            cudaMemcpyAsync(host_data, pointer.data + pointer.offset, size * sizeof(T), cudaMemcpyDeviceToHost);
         if (err != cudaSuccess) {
             return -1;
         }
