@@ -44,3 +44,7 @@ python3 test/test.py
 - https://github.com/torstem/demo-cuda-pybind11
 - https://github.com/PWhiddy/pybind11-cuda
 
+# Todos
+
+- [ ] Use GPU for AOSOA Policy swapping
+- [ ] CPU Version
