@@ -44,4 +44,3 @@ python3 test/test.py
 - https://github.com/torstem/demo-cuda-pybind11
 - https://github.com/PWhiddy/pybind11-cuda
 
-Give an example of how to pass (host/device) pointers between C++ and python.
