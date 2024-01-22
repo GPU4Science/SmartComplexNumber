@@ -29,7 +29,7 @@ Cmake 3.6 or greater
 # Installation
 
 ```bash
-bash install.bash
+source install.bash
 ```
 
 Test it with 
