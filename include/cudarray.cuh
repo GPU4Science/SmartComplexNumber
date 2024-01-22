@@ -1,9 +1,9 @@
 #ifndef RUSHCLUSTER_CUDARRAY_CUH
 #define RUSHCLUSTER_CUDARRAY_CUH
 
-#include<iostream>
-#include <cuda_runtime.h>
 #include <cstdint>
+#include <cuda_runtime.h>
+#include <iostream>
 #include <iostream>
 #include <sstream>
 
@@ -37,11 +37,19 @@ struct cudarray_device_pointer {
 
 template<typename T>
 struct cudarray {
+    cudarray() : size(0), device_count(0), policy(eCudaArrayPolicy::EVENLY) {
+        data = nullptr;
+        device_status = nullptr;
+        device_offset = nullptr;
+        device_size = nullptr;
+    }
+
     // Allocate a cudarray with given size and device count
     cudarray(uint64_t size, int device_count) : size(size), device_count(device_count), policy(policy) {
         data = new T *[device_count];
         // Count all devices
         policy = eCudaArrayPolicy::EVENLY;
+        device_status = new eCudaDeviceStatus[device_count];
         device_offset = new uint64_t[device_count];
         device_size = new uint64_t[device_count];
         for (int i = 0; i < device_count; i++) {
@@ -51,6 +59,7 @@ struct cudarray {
             device_size[i] = 0;
         }
     }
+
     // Free all data
     ~cudarray() {
         for (int i = 0; i < device_count; i++) {
@@ -84,11 +93,30 @@ struct cudarray {
         }
     }
 
+    void resize(uint64_t size, int device_count = 1) {
+        this->size = size;
+        this->device_count = device_count;
+        data = new T *[device_count];
+        // Count all devices
+        device_status = new eCudaDeviceStatus[device_count];
+        policy = eCudaArrayPolicy::EVENLY;
+        device_offset = new uint64_t[device_count];
+        device_size = new uint64_t[device_count];
+        for (int i = 0; i < device_count; i++) {
+            data[i] = nullptr;
+            device_status[i] = IDLE;
+            device_offset[i] = 0;
+            device_size[i] = 0;
+        }
+        allocate();
+    }
+
     int getDeviceID(uint64_t offset) {
         if (policy == eCudaArrayPolicy::EVENLY) {
             return offset / (size / device_count);
         } else {
             // TODO
+            return -1;
         }
     }
 
@@ -110,12 +138,14 @@ struct cudarray {
         }
         return 0;
     }
+
     T getItem(uint64_t offset) {
         T data;
         cudarray_device_pointer<T> pointer = getDevicePointer(offset);
         cudaError_t err = cudaMemcpy(&data, pointer.data + pointer.offset, sizeof(T), cudaMemcpyDeviceToHost);
         return data;
     }
+
     int copyFromHostToDevice(T *host_data, uint64_t offset, uint64_t size) {
         cudarray_device_pointer<T> pointer = getDevicePointer(offset);
         cudaError_t err =
@@ -125,6 +155,7 @@ struct cudarray {
         }
         return 0;
     }
+
     int copyFromDeviceToHost(T *host_data, uint64_t offset, uint64_t size) {
         cudarray_device_pointer<T> pointer = getDevicePointer(offset);
         cudaError_t err =
