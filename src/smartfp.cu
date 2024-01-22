@@ -13,9 +13,14 @@ __global__ void vec_mult_kernel(T *vec1, T *vec2, int size, int level) {
 
     uint64_t real_index_base = group_index * (2 * fold_size);
     uint64_t imag_index_base = real_index_base + fold_size;
+    if (real_index_base + fold_size > size) {
+        return;
+    }
+    if (imag_index_base + fold_size > size) {
+        return;
+    }
 
     for (uint64_t idx = 0; idx < fold_size; idx++) {
-        ;
         uint64_t real_index = real_index_base + idx;
         uint64_t imag_index = imag_index_base + idx;
 
@@ -34,11 +39,17 @@ void ExecuteVecMultKernel(SmartFPArr<T> *arr1, SmartFPArr<T> *arr2) {
     int device_count = arr1->arr.device_count;
     int level = arr1->level;
     uint64_t size = arr1->size;
-    dim3 dimBlock(1024, 1, 1);
-    dim3 dimGrid(ceil((T)size / dimBlock.x));
+    uint64_t fold_size = 1 << level;
 
     for (int device_id = 0; device_id < device_count; device_id++) {
         cudaSetDevice(device_id);
+        uint64_t item_count = arr1->arr.device_size[device_id];
+        uint64_t complex_number_count = item_count / 2;
+        uint64_t group_count = (complex_number_count - 1) / fold_size + 1;
+        // printf("device_id: %d, item_count: %d, complex_number_count: %d, group_count: %d\n", device_id, item_count,
+        //        complex_number_count, group_count);
+        dim3 dimBlock(1024, 1, 1);
+        dim3 dimGrid(group_count + 1);
         vec_mult_kernel<T><<<dimGrid, dimBlock>>>(arr1->arr.data[device_id], arr2->arr.data[device_id],
                                                   arr1->arr.device_size[device_id], level);
     }
@@ -66,8 +77,8 @@ uintptr_t SmartFP_Array_Create(pybind11::array_t<T> real, pybind11::array_t<T> i
     SmartFPArr<T> *smart_fp_arr = new SmartFPArr<T>();
 
     // Check if real and imag are the same size
-    int real_size = real_buffer.shape[0];
-    int imag_size = imag_buffer.shape[0];
+    uint64_t real_size = real_buffer.shape[0];
+    uint64_t imag_size = imag_buffer.shape[0];
     if (real_size != imag_size) {
         std::stringstream strstr;
         strstr << "real_size != imag_size" << std::endl;
@@ -97,6 +108,13 @@ uintptr_t SmartFP_Array_Create(pybind11::array_t<T> real, pybind11::array_t<T> i
         smart_fp_arr->arr.copyFromHostToDevice(imag_ptr + index, imag_index, fold_size);
     }
 
+    // * DEBUG: Print data in GPU
+    // T* test;
+    // test = new T[real_size * 2];
+    // smart_fp_arr->arr.copyFromDeviceToHost(test, 0, real_size * 2);
+    // for (int i = 0; i < real_size * 2; i++) {
+    //     std::cout << test[i] << std::endl;
+    // }
     // TODO: Try Copy and then swap in GPU
 
     cudaError_t cuda_status = cudaDeviceSynchronize();
@@ -121,24 +139,9 @@ void SmartFP_Array_Fetch(uintptr_t smartfp_ptr, pybind11::array_t<T> real, pybin
     pybind11::buffer_info imag_buffer = imag.request();
 
     // Create smart FP arr pointer
-    SmartFPArr<T> *smart_fp_arr = new SmartFPArr<T>();
-
-    // Check if real and imag are the same size
-    int real_size = real_buffer.shape[0];
-    int imag_size = imag_buffer.shape[0];
-    if (real_size != imag_size) {
-        std::stringstream strstr;
-        strstr << "real_size != imag_size" << std::endl;
-        strstr << "real_size: " << real_size << std::endl;
-        strstr << "imag_size: " << imag_size << std::endl;
-        throw std::runtime_error(strstr.str());
-    }
-
-    // Set size and level for AOSOA
-    smart_fp_arr->size = real_size;
-    smart_fp_arr->level = level;
-    smart_fp_arr->arr.resize(real_size, device_count);
-
+    SmartFPArr<T> *smart_fp_arr = reinterpret_cast<SmartFPArr<T> *>(smartfp_ptr);
+    uint64_t real_size = smart_fp_arr->size;
+    
     // Convert real and imag pointers to T*
     T *real_ptr = reinterpret_cast<T *>(real_buffer.ptr);
     T *imag_ptr = reinterpret_cast<T *>(imag_buffer.ptr);
@@ -151,6 +154,7 @@ void SmartFP_Array_Fetch(uintptr_t smartfp_ptr, pybind11::array_t<T> real, pybin
         uint64_t group_id = index / fold_size;
         uint64_t real_index = group_id * (2 * fold_size);
         uint64_t imag_index = real_index + fold_size;
+        
         smart_fp_arr->arr.copyFromDeviceToHost(real_ptr + index, real_index, fold_size);
         smart_fp_arr->arr.copyFromDeviceToHost(imag_ptr + index, imag_index, fold_size);
     }
@@ -165,6 +169,10 @@ void SmartFP_Array_Fetch(uintptr_t smartfp_ptr, pybind11::array_t<T> real, pybin
     return;
 }
 
+/*
+@ brief: Compute smart FP array
+@ param: smart_fp_arr1, smart_fp_arr2: smart FP array pointer
+*/
 template<typename T>
 void SmartFP_Array_Mul(uintptr_t smart_fp_arr1, uintptr_t smart_fp_arr2) {
     SmartFPArr<T> *smart_fp_arr1_ptr = reinterpret_cast<SmartFPArr<T> *>(smart_fp_arr1);
@@ -190,6 +198,10 @@ void SmartFP_Array_Mul(uintptr_t smart_fp_arr1, uintptr_t smart_fp_arr2) {
     ExecuteVecMultKernel<T>(smart_fp_arr1_ptr, smart_fp_arr2_ptr);
 }
 
+/*
+@ brief: Free smart FP array
+@ param: smart_fp_arr: smart FP array pointer
+*/
 template<typename T>
 void SmartFP_Array_Free(uintptr_t smart_fp_arr) {
     SmartFPArr<T> *smart_fp_arr_ptr = reinterpret_cast<SmartFPArr<T> *>(smart_fp_arr);
